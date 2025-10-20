@@ -1,77 +1,66 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 public class CameraFollow : MonoBehaviour
 {
-    [Header("Target & Offset")]
-    public Transform target; // Target yang diikuti (Zombie)
-    public Vector3 targetOffset = new Vector3(0, 1.5f, 0); // Titik yang dilihat kamera (setinggi dada/kepala)
+    [Header("Target")]
+    [Tooltip("Objek yang akan diikuti oleh kamera (drag & drop Zombie ke sini)")]
+    public Transform target;
 
-    [Header("Camera Settings")]
-    public float mouseSensitivity = 2.0f;
-    public float distanceFromTarget = 6.0f; // Jarak ideal kamera dari target
-    public Vector2 pitchMinMax = new Vector2(-10, 80); // Batas kamera melihat ke atas/bawah
-    public float rotationSmoothTime = 0.1f;
+    [Header("Camera Positioning")]
+    [Tooltip("Seberapa jauh kamera dari target")]
+    public float distance = 5.0f;
+    [Tooltip("Seberapa tinggi kamera dari target")]
+    public float height = 2.0f; // PASTIKAN INI BUKAN 0 DI INSPECTOR
+    [Tooltip("Seberapa mulus kamera mengikuti target")]
+    public float smoothSpeed = 10.0f;
 
-    [Header("Collision")]
-    public LayerMask collisionMask; // Layer untuk tembok dan objek lain yang harus dihindari
-    public float collisionPadding = 0.2f; // Jarak aman dari tembok agar tidak tembus
+    [Header("Wall Collision")]
+    [Tooltip("Layer yang dianggap sebagai penghalang (tembok, lantai, dll)")]
+    public LayerMask collisionMask;
+    [Tooltip("Seberapa dekat kamera bisa ke tembok sebelum berhenti")]
+    public float collisionPadding = 0.35f;
 
-    // Variabel internal
-    private Vector2 lookInput;
-    private float yaw; // Rotasi horizontal
-    private float pitch; // Rotasi vertikal
-    private Vector3 currentRotation;
-    private Vector3 rotationSmoothVelocity;
+    private Vector3 offset;
+    private Vector3 desiredPosition;
 
     void Start()
     {
-        if (target != null)
+        if (target == null)
         {
-            yaw = target.eulerAngles.y;
-            pitch = 15.0f;
+            Debug.LogError("CameraFollow: Target (player) belum di-set!");
+            return;
         }
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-    }
-
-    public void OnLook(InputValue value)
-    {
-        lookInput = value.Get<Vector2>();
+        // Menghitung offset awal kamera dari target
+        offset = new Vector3(0, height, -distance);
     }
 
     void LateUpdate()
     {
         if (target == null) return;
 
-        // 1. Mengambil input mouse untuk rotasi
-        yaw += lookInput.x * mouseSensitivity;
-        pitch -= lookInput.y * mouseSensitivity;
-        pitch = Mathf.Clamp(pitch, pitchMinMax.x, pitchMinMax.y);
+        // 1. Menentukan posisi ideal kamera di belakang target
+        desiredPosition = target.position + (target.rotation * offset);
 
-        // 2. Menghaluskan pergerakan rotasi kamera
-        currentRotation = Vector3.SmoothDamp(currentRotation, new Vector3(pitch, yaw), ref rotationSmoothVelocity, rotationSmoothTime);
-        Quaternion rotation = Quaternion.Euler(currentRotation);
+        // 2. Mengatur posisi kamera dengan mulus (smooth)
+        transform.position = Vector3.Lerp(transform.position, desiredPosition, smoothSpeed * Time.deltaTime);
 
-        // 3. Menghitung posisi ideal kamera (jika tidak ada tembok)
-        Vector3 desiredPosition = target.position + targetOffset + rotation * new Vector3(0, 0, -distanceFromTarget);
+        // 3. Menghandle tabrakan dengan tembok menggunakan Raycast
+        HandleCollision();
 
-        // 4. Cek Tembok (Collision)
+        // 4. Selalu membuat kamera melihat ke arah target
+        // Kita LookAt sedikit ke atas kepala target (1.0f), BUKAN di kaki (0)
+        transform.LookAt(target.position + Vector3.up * 1.0f); 
+    }
+
+    private void HandleCollision()
+    {
         RaycastHit hit;
-        // Kita "menembakkan" garis dari target ke posisi ideal kamera
-        if (Physics.Linecast(target.position + targetOffset, desiredPosition, out hit, collisionMask))
+        // Titik awal raycast juga sedikit di atas pivot (kaki)
+        Vector3 targetPosition = target.position + Vector3.up * 1.0f; 
+        
+        if (Physics.Raycast(targetPosition, desiredPosition - targetPosition, out hit, distance, collisionMask))
         {
-            // Jika garisnya menabrak sesuatu, pindahkan kamera ke titik tabrakan
             transform.position = hit.point + hit.normal * collisionPadding;
         }
-        else
-        {
-            // Jika aman, tempatkan kamera di posisi ideal
-            transform.position = desiredPosition;
-        }
-
-        // 5. Buat kamera selalu melihat ke arah target
-        transform.LookAt(target.position + targetOffset);
     }
 }

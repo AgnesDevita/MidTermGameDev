@@ -4,21 +4,18 @@ using UnityEngine.AI;
 public class GunBotAI : MonoBehaviour
 {
     [Header("References")]
-    [Tooltip("Target player (Zombie). Leave empty to auto-find by Player tag")]
+    [Tooltip("Target player (Zombie). Kosongkan untuk auto-find")]
     public Transform player;
     
-    [Tooltip("Patrol waypoints. Leave empty to auto-find Points object")]
+    [Tooltip("Patrol waypoints. Kosongkan untuk auto-find")]
     public Transform[] patrolPoints;
     
     [Header("Detection Settings")]
     [Tooltip("Distance to detect and start chasing player")]
     public float detectionRadius = 250f;
     
-    [Tooltip("Distance where GunBot loses player and returns to patrol")]
-    public float losePlayerRadius = 350f;
-    
-    [Tooltip("Distance to stop and attack player")]
-    public float attackRange = 50f;
+    [Tooltip("Jarak 'sentuhan' untuk membunuh player")]
+    public float killDistance = 1.5f; 
     
     [Header("Movement Speed")]
     [Tooltip("Walking speed during patrol")]
@@ -31,21 +28,22 @@ public class GunBotAI : MonoBehaviour
     [Tooltip("Time to wait at each patrol point")]
     public float waitTimeAtPoint = 2f;
     
-    [Tooltip("If true, picks random waypoint. If false, goes in order")]
-    public bool randomPatrol = true;
-    
     private NavMeshAgent agent;
     private Animator animator;
     private int currentPatrolIndex = 0;
     private float waitTimer = 0f;
     
-    private enum State { Patrol, Chase, Attack }
+    private enum State { Patrol, Chase }
     private State currentState = State.Patrol;
-    
+    private bool patrolCompleted = false;
+    private bool playerIsKilled = false; 
+
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         animator = GetComponent<Animator>();
+        
+        agent.stoppingDistance = 0; 
         
         CapsuleCollider capsule = GetComponent<CapsuleCollider>();
         if (capsule != null)
@@ -53,37 +51,26 @@ public class GunBotAI : MonoBehaviour
             float modelHeight = capsule.height;
             float modelCenter = capsule.center.y;
             float calculatedOffset = modelHeight + modelCenter;
-            
             agent.baseOffset = calculatedOffset;
-            Debug.Log($"GunBot: Auto-set Base Offset to {calculatedOffset} (height={modelHeight}, center={modelCenter})");
         }
         
         agent.speed = patrolSpeed;
         
+        // --- INI BAGIAN PENTING UNTUK ERROR ANDA ---
         if (player == null)
         {
             GameObject zombieObj = GameObject.FindGameObjectWithTag("Player");
             if (zombieObj != null)
             {
                 player = zombieObj.transform;
-                Debug.Log("GunBot: Found player by tag - " + zombieObj.name);
+                Debug.Log("GunBot: Ditemukan player via Tag 'Player'");
             }
             else
             {
-                Debug.LogWarning("GunBot: No GameObject with 'Player' tag found!");
-                
-                GameObject zombieByName = GameObject.Find("Zombie");
-                if (zombieByName != null)
-                {
-                    player = zombieByName.transform;
-                    Debug.Log("GunBot: Found player by name - Zombie (fallback)");
-                }
-                else
-                {
-                    Debug.LogError("GunBot: Cannot find player! Make sure Zombie exists and has 'Player' tag.");
-                }
+                Debug.LogError("GunBot: TIDAK MENEMUKAN 'Player'. Pastikan Zombie punya Tag 'Player'!");
             }
         }
+        // ---------------------------------------------
         
         if (patrolPoints == null || patrolPoints.Length == 0)
         {
@@ -96,33 +83,33 @@ public class GunBotAI : MonoBehaviour
                 {
                     patrolPoints[i] = pointsParent.transform.GetChild(i);
                 }
-                Debug.Log($"GunBot: Auto-found {childCount} patrol points");
-            }
-            else
-            {
-                Debug.LogError("GunBot: No patrol points found! Create a 'Points' GameObject with waypoint children.");
             }
         }
         
-        agent.speed = patrolSpeed;
-        
         if (patrolPoints != null && patrolPoints.Length > 0)
         {
-            GoToNextPatrolPoint();
+            currentPatrolIndex = 0;
+            agent.SetDestination(patrolPoints[currentPatrolIndex].position);
+        }
+        else
+        {
+            patrolCompleted = true;
         }
     }
     
     void Update()
     {
-        if (player == null) 
+        if (player == null || playerIsKilled) 
         {
-            Debug.LogWarning("GunBot: Player is NULL! Cannot detect player.");
+            if (currentState == State.Chase && !patrolCompleted)
+            {
+                ChangeState(State.Patrol);
+            }
+            UpdateAnimations(); // Tetap update animasi agar bisa Idle
             return;
         }
         
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
-        
-        Debug.Log($"GunBot: Distance to player = {distanceToPlayer:F1}, Detection radius = {detectionRadius}, Current state = {currentState}");
         
         switch (currentState)
         {
@@ -133,10 +120,6 @@ public class GunBotAI : MonoBehaviour
             case State.Chase:
                 HandleChaseState(distanceToPlayer);
                 break;
-                
-            case State.Attack:
-                HandleAttackState(distanceToPlayer);
-                break;
         }
         
         UpdateAnimations();
@@ -146,15 +129,19 @@ public class GunBotAI : MonoBehaviour
     {
         if (distanceToPlayer <= detectionRadius)
         {
-            Debug.Log("GunBot: Player detected! Switching to CHASE mode");
             ChangeState(State.Chase);
             return;
         }
         
+        if (patrolCompleted)
+        {
+            if(agent.hasPath) agent.ResetPath();
+            return;
+        }
+
         if (!agent.pathPending && agent.remainingDistance < 0.5f)
         {
             waitTimer += Time.deltaTime;
-            
             if (waitTimer >= waitTimeAtPoint)
             {
                 waitTimer = 0f;
@@ -165,34 +152,14 @@ public class GunBotAI : MonoBehaviour
     
     void HandleChaseState(float distanceToPlayer)
     {
-        if (distanceToPlayer > losePlayerRadius)
+        if (distanceToPlayer <= killDistance)
         {
-            Debug.Log("GunBot: Lost player. Returning to PATROL mode");
-            ChangeState(State.Patrol);
-            return;
-        }
-        
-        if (distanceToPlayer <= attackRange)
-        {
-            Debug.Log("GunBot: Player in range! Switching to ATTACK mode");
-            ChangeState(State.Attack);
+            KillPlayer();
             return;
         }
         
         agent.SetDestination(player.position);
-    }
-    
-    void HandleAttackState(float distanceToPlayer)
-    {
-        if (distanceToPlayer > attackRange + 0.5f)
-        {
-            Debug.Log("GunBot: Player escaped! Switching to CHASE mode");
-            ChangeState(State.Chase);
-            return;
-        }
-        
-        agent.SetDestination(transform.position);
-        
+
         Vector3 direction = (player.position - transform.position).normalized;
         direction.y = 0;
         if (direction != Vector3.zero)
@@ -211,17 +178,16 @@ public class GunBotAI : MonoBehaviour
             case State.Patrol:
                 agent.speed = patrolSpeed;
                 agent.angularSpeed = 120;
-                GoToNextPatrolPoint();
+                
+                if (!patrolCompleted)
+                {
+                    agent.SetDestination(patrolPoints[currentPatrolIndex].position);
+                }
                 break;
                 
             case State.Chase:
                 agent.speed = chaseSpeed;
                 agent.angularSpeed = 200;
-                break;
-                
-            case State.Attack:
-                agent.speed = 0f;
-                agent.angularSpeed = 360;
                 break;
         }
     }
@@ -230,23 +196,36 @@ public class GunBotAI : MonoBehaviour
     {
         if (patrolPoints == null || patrolPoints.Length == 0) return;
         
-        if (randomPatrol)
+        if (currentPatrolIndex < patrolPoints.Length - 1)
         {
-            currentPatrolIndex = Random.Range(0, patrolPoints.Length);
+            currentPatrolIndex++;
+            agent.SetDestination(patrolPoints[currentPatrolIndex].position);
         }
         else
         {
-            currentPatrolIndex = (currentPatrolIndex + 1) % patrolPoints.Length;
+            Debug.Log("GunBot: Reached final patrol point. Patrol complete.");
+            patrolCompleted = true;
         }
-        
-        agent.SetDestination(patrolPoints[currentPatrolIndex].position);
-        Debug.Log($"GunBot: Moving to patrol point {currentPatrolIndex + 1}");
+    }
+
+    void KillPlayer()
+    {
+        if (playerIsKilled) return; 
+
+        playerIsKilled = true;
+        agent.isStopped = true; 
+        ChangeState(State.Patrol); 
+
+        PlayerController playerScript = player.GetComponent<PlayerController>();
+        if (playerScript != null)
+        {
+            playerScript.Die();
+        }
     }
     
     void UpdateAnimations()
     {
         if (animator == null) return;
-        
         float speed = agent.velocity.magnitude;
         animator.SetFloat("Speed", speed);
     }
@@ -256,21 +235,15 @@ public class GunBotAI : MonoBehaviour
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRadius);
         
-        Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position, losePlayerRadius);
-        
-        Gizmos.color = Color.magenta;
-        Gizmos.DrawWireSphere(transform.position, attackRange);
+        Gizmos.color = Color.red; 
+        Gizmos.DrawWireSphere(transform.position, killDistance);
         
         if (patrolPoints != null && patrolPoints.Length > 0)
         {
             Gizmos.color = Color.cyan;
             foreach (Transform point in patrolPoints)
             {
-                if (point != null)
-                {
-                    Gizmos.DrawSphere(point.position, 0.3f);
-                }
+                if (point != null) Gizmos.DrawSphere(point.position, 0.3f);
             }
         }
     }

@@ -1,88 +1,101 @@
-// Ganti semua isi PlayerController.cs dengan kode ini
 using UnityEngine;
-using UnityEngine.InputSystem;
 
+// Pastikan komponen ini ada di object Zombie Anda
 [RequireComponent(typeof(Rigidbody))]
-[RequireComponent(typeof(Animator))] // Pastikan ada komponen Animator
+[RequireComponent(typeof(CapsuleCollider))]
+[RequireComponent(typeof(Animator))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
-    public float moveSpeed = 5f;
-    public float rotationSpeed = 15f; // Ditingkatkan agar rotasi lebih responsif
-
-    [Header("References")]
-    public Transform cameraTransform; // Referensi ke transform kamera utama
+    [Tooltip("Kecepatan berjalan normal")]
+    public float walkSpeed = 3.0f;
+    
+    [Tooltip("Kecepatan saat berlari")]
+    public float runSpeed = 6.0f;
+    
+    [Tooltip("Seberapa cepat karakter berputar (dalam derajat per detik)")]
+    public float rotationSpeed = 200.0f;
 
     private Rigidbody rb;
-    private Animator animator; // Variabel untuk Animator
-    private Vector2 moveInput;
+    private Animator animator;
+    private float currentSpeed = 0f;
+    private bool isDead = false;
 
-    void Awake()
+    void Start()
     {
         rb = GetComponent<Rigidbody>();
         animator = GetComponent<Animator>();
 
-        // Pastikan Rigidbody tidak berputar sendiri
+        // Mengunci rotasi pada sumbu X dan Z agar karakter tidak terguling
         rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
-
-        // Mencari kamera utama secara otomatis jika belum di-set
-        if (cameraTransform == null)
-        {
-            cameraTransform = Camera.main.transform;
-        }
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
     }
 
-    void FixedUpdate()
-    {
-        HandleMovement();
-    }
-    
     void Update()
     {
-        UpdateAnimator();
+        // Jika sudah mati, hentikan semua proses input dan pergerakan
+        if (isDead) return;
+
+        HandleMovement();
+        UpdateAnimations();
     }
 
     private void HandleMovement()
     {
-        // Arah depan kamera (tanpa komponen Y)
-        Vector3 camForward = cameraTransform.forward;
-        camForward.y = 0;
-        camForward.Normalize();
+        // 1. Mengambil Input dari Keyboard (W/A/S/D atau Panah)
+        float verticalInput = Input.GetAxis("Vertical"); // Maju (W/Up) dan Mundur (S/Down)
+        float horizontalInput = Input.GetAxis("Horizontal"); // Belok Kiri (A/Left) dan Kanan (D/Right)
 
-        // Arah kanan kamera (tanpa komponen Y)
-        Vector3 camRight = cameraTransform.right;
-        camRight.y = 0;
-        camRight.Normalize();
+        // 2. Menentukan kecepatan berdasarkan tombol Lari (Left Shift)
+        bool isRunning = Input.GetKey(KeyCode.LeftShift);
+        currentSpeed = isRunning ? runSpeed : walkSpeed;
 
-        // Hitung arah pergerakan berdasarkan input dan arah kamera
-        Vector3 moveDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
+        // 3. Menghitung Vektor Gerakan
+        // Gerakan maju/mundur hanya jika ada input vertikal
+        Vector3 movement = transform.forward * verticalInput * currentSpeed * Time.deltaTime;
 
-        // Gerakkan Rigidbody
-        rb.linearVelocity = new Vector3(moveDirection.x * moveSpeed, rb.linearVelocity.y, moveDirection.z * moveSpeed);
+        // 4. Mengaplikasikan Gerakan
+        // Kita menggunakan rb.MovePosition agar interaksi dengan fisika lebih baik
+        rb.MovePosition(rb.position + movement);
 
-        // Rotasi karakter agar menghadap ke arah gerakan
-        if (moveDirection != Vector3.zero)
+        // 5. Menghitung dan Mengaplikasikan Rotasi/Belok
+        float rotation = horizontalInput * rotationSpeed * Time.deltaTime;
+        Quaternion turn = Quaternion.Euler(0f, rotation, 0f);
+        rb.MoveRotation(rb.rotation * turn);
+    }
+
+    private void UpdateAnimations()
+    {
+        // Mengambil input vertikal absolut untuk menentukan apakah ada gerakan maju/mundur
+        float moveMagnitude = Mathf.Abs(Input.GetAxis("Vertical"));
+        
+        // Jika sedang berlari, magnitude animasinya lebih besar
+        bool isRunning = Input.GetKey(KeyCode.LeftShift);
+
+        // Jika ada input gerak maju/mundur
+        if(moveMagnitude > 0.1f)
         {
-            Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            // Set speed animator ke 2 jika lari, atau 1 jika jalan
+            animator.SetFloat("Speed", isRunning ? 2.0f : 1.0f);
+        }
+        else
+        {
+            // Jika tidak ada input, speed animator 0 (Idle)
+            animator.SetFloat("Speed", 0f);
         }
     }
 
-    private void UpdateAnimator()
+    // --- FUNGSI UNTUK DIPANGGIL DARI SCRIPT LAIN (CONTOH: GUNBOT) ---
+    public void Die()
     {
-        // Mengirim informasi kecepatan ke Animator
-        // Magnitude dari input (0 jika diam, 1 jika bergerak)
-        float speed = moveInput.magnitude;
-        animator.SetFloat("Speed", speed);
-    }
-
-
-    // Fungsi ini dipanggil oleh Player Input Component
-    public void OnMove(InputValue value)
-    {
-        moveInput = value.Get<Vector2>();
+        if (!isDead)
+        {
+            isDead = true;
+            animator.SetTrigger("Die");
+            
+            // Menonaktifkan collider agar tidak menghalangi jalan
+            GetComponent<CapsuleCollider>().enabled = false;
+            rb.isKinematic = true; // Hentikan Rigidbody dari pengaruh fisika
+            Debug.Log("Player has died!");
+        }
     }
 }
