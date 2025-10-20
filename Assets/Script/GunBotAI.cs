@@ -248,7 +248,22 @@ public class GunBotAI : MonoBehaviour
         if (animator == null) return;
         
         float speed = agent.velocity.magnitude;
+        
+        bool isMoving = speed > 0.1f;
+        bool isRunning = speed > patrolSpeed * 0.5f;
+        bool isAttacking = currentState == State.Attack;
+        
+        animator.SetBool("IsWalking", isMoving);
+        animator.SetBool("IsRunning", isRunning);
+        animator.SetBool("IsAttacking", isAttacking);
         animator.SetFloat("Speed", speed);
+        animator.SetFloat("VelocityX", agent.velocity.x);
+        animator.SetFloat("VelocityZ", agent.velocity.z);
+        
+        if (isMoving)
+        {
+            Debug.Log($"GunBot Animation: Speed={speed:F1}, IsWalking={isMoving}, IsRunning={isRunning}, State={currentState}");
+        }
     }
     
     void OnDrawGizmosSelected()
