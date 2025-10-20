@@ -12,20 +12,20 @@ public class GunBotAI : MonoBehaviour
     
     [Header("Detection Settings")]
     [Tooltip("Distance to detect and start chasing player")]
-    public float detectionRadius = 250f;
+    public float detectionRadius = 500f;
     
     [Tooltip("Distance where GunBot loses player and returns to patrol")]
-    public float losePlayerRadius = 350f;
+    public float losePlayerRadius = 600f;
     
     [Tooltip("Distance to stop and attack player")]
-    public float attackRange = 50f;
+    public float attackRange = 80f;
     
     [Header("Movement Speed")]
     [Tooltip("Walking speed during patrol")]
-    public float patrolSpeed = 1250f;
+    public float patrolSpeed = 150f;
     
     [Tooltip("Running speed when chasing player")]
-    public float chaseSpeed = 1250f;
+    public float chaseSpeed = 300f;
     
     [Header("Patrol Behavior")]
     [Tooltip("Time to wait at each patrol point")]
@@ -34,10 +34,21 @@ public class GunBotAI : MonoBehaviour
     [Tooltip("If true, picks random waypoint. If false, goes in order")]
     public bool randomPatrol = true;
     
+    [Header("Combat Settings")]
+    [Tooltip("Damage dealt per attack")]
+    public int attackDamage = 10;
+    
+    [Tooltip("Time between attacks")]
+    public float attackCooldown = 1.5f;
+    
+    [Tooltip("Attack sound effect")]
+    public AudioClip attackSound;
+    
     private NavMeshAgent agent;
     private Animator animator;
     private int currentPatrolIndex = 0;
     private float waitTimer = 0f;
+    private float attackTimer = 0f;
     
     private enum State { Patrol, Chase, Attack }
     private State currentState = State.Patrol;
@@ -47,16 +58,7 @@ public class GunBotAI : MonoBehaviour
         agent = GetComponent<NavMeshAgent>();
         animator = GetComponent<Animator>();
         
-        CapsuleCollider capsule = GetComponent<CapsuleCollider>();
-        if (capsule != null)
-        {
-            float modelHeight = capsule.height;
-            float modelCenter = capsule.center.y;
-            float calculatedOffset = modelHeight + modelCenter;
-            
-            agent.baseOffset = calculatedOffset;
-            Debug.Log($"GunBot: Auto-set Base Offset to {calculatedOffset} (height={modelHeight}, center={modelCenter})");
-        }
+        FixAgentSizeForScale();
         
         agent.speed = patrolSpeed;
         
@@ -116,13 +118,10 @@ public class GunBotAI : MonoBehaviour
     {
         if (player == null) 
         {
-            Debug.LogWarning("GunBot: Player is NULL! Cannot detect player.");
             return;
         }
         
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
-        
-        Debug.Log($"GunBot: Distance to player = {distanceToPlayer:F1}, Detection radius = {detectionRadius}, Current state = {currentState}");
         
         switch (currentState)
         {
@@ -200,6 +199,30 @@ public class GunBotAI : MonoBehaviour
             Quaternion lookRotation = Quaternion.LookRotation(direction);
             transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * 5f);
         }
+        
+        attackTimer += Time.deltaTime;
+        if (attackTimer >= attackCooldown)
+        {
+            AttackPlayer();
+            attackTimer = 0f;
+        }
+    }
+    
+    void AttackPlayer()
+    {
+        if (player == null) return;
+        
+        PlayerHealth playerHealth = player.GetComponent<PlayerHealth>();
+        if (playerHealth != null && !playerHealth.IsDead())
+        {
+            playerHealth.TakeDamage(attackDamage);
+            Debug.Log($"GunBot attacked! Dealt {attackDamage} damage");
+            
+            if (attackSound != null)
+            {
+                AudioSource.PlayClipAtPoint(attackSound, transform.position);
+            }
+        }
     }
     
     void ChangeState(State newState)
@@ -248,7 +271,17 @@ public class GunBotAI : MonoBehaviour
         if (animator == null) return;
         
         float speed = agent.velocity.magnitude;
+        
+        bool isMoving = speed > 0.1f;
+        bool isRunning = speed > patrolSpeed * 0.5f;
+        bool isAttacking = currentState == State.Attack;
+        
+        animator.SetBool("IsWalking", isMoving);
+        animator.SetBool("IsRunning", isRunning);
+        animator.SetBool("IsAttacking", isAttacking);
         animator.SetFloat("Speed", speed);
+        animator.SetFloat("VelocityX", agent.velocity.x);
+        animator.SetFloat("VelocityZ", agent.velocity.z);
     }
     
     void OnDrawGizmosSelected()
@@ -272,6 +305,30 @@ public class GunBotAI : MonoBehaviour
                     Gizmos.DrawSphere(point.position, 0.3f);
                 }
             }
+        }
+    }
+    
+    void FixAgentSizeForScale()
+    {
+        float scale = transform.localScale.x;
+        float targetEffectiveRadius = 7f;
+        
+        float newRadius = targetEffectiveRadius / scale;
+        float newHeight = (targetEffectiveRadius * 2.5f) / scale;
+        
+        agent.radius = newRadius;
+        agent.height = newHeight;
+        
+        Debug.Log($"GunBot: Auto-fixed size for scale {scale}x\n" +
+                  $"NavMesh Radius: {newRadius:F2} → Effective: {newRadius * scale:F1} units\n" +
+                  $"NavMesh Height: {newHeight:F2} → Effective: {newHeight * scale:F1} units\n" +
+                  $"(Zombie effective radius ≈ 6 units, GunBot now ≈ 7 units)");
+        
+        CapsuleCollider capsule = GetComponent<CapsuleCollider>();
+        if (capsule != null && !capsule.isTrigger)
+        {
+            capsule.radius = newRadius;
+            capsule.height = newHeight;
         }
     }
 }

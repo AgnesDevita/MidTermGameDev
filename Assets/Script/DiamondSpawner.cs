@@ -1,35 +1,91 @@
-// DiamondSpawner.cs
 using System.Collections.Generic;
 using UnityEngine;
-#if UNITY_AI_NAVIGATION
-using UnityEngine.AI; // optional kalau mau cek NavMesh
-#endif
+using UnityEngine.AI;
 
 public class DiamondSpawner : MonoBehaviour
 {
     [Header("What to spawn")]
     public GameObject diamondPrefab;
     public int totalDiamonds = 20;
+    
+    [Header("Auto Spawn Settings")]
+    public bool autoSpawnOnStart = true;
+    public bool enableRespawn = true;
+    public float respawnDelay = 5f;
 
     [Header("Where to spawn (add BoxCollider per ruangan)")]
     public List<BoxCollider> spawnAreas = new List<BoxCollider>();
 
     [Header("Placement rules")]
-    public float minSpacing = 1.0f;                 // Jarak antar diamond
-    public LayerMask groundMask;                    // Layer lantai
-    public LayerMask obstacleMask;                  // Layer dinding/halangan
-    public float raycastHeight = 5f;                // Ketinggian raycast dari atas
-    public int maxAttemptsPerDiamond = 100;         // Biar gak infinite loop
+    public float minSpacing = 2.0f;
+    public LayerMask groundMask;
+    public LayerMask obstacleMask;
+    public float raycastHeight = 10f;
+    public float heightOffset = 0.5f;
+    public int maxAttemptsPerDiamond = 100;
 
     [Header("Optional")]
-    public bool alignToGroundNormal = false;        // Putar mengikuti normal lantai
-    public bool useNavMeshCheck = false;            // True jika pakai NavMesh.SamplePosition
-    public float navMeshMaxDistance = 0.5f;         // Batas toleransi ke NavMesh
+    public bool alignToGroundNormal = false;
+    public bool useNavMeshCheck = true;
+    public float navMeshMaxDistance = 2f;
 
     private readonly List<Vector3> placedPositions = new List<Vector3>();
+    private int currentDiamondCount = 0;
+    private float respawnTimer = 0f;
+
+    void Start()
+    {
+        if (autoSpawnOnStart)
+        {
+            SpawnNow();
+        }
+    }
+    
+    void Update()
+    {
+        if (!enableRespawn) return;
+        
+        currentDiamondCount = transform.childCount;
+        
+        if (currentDiamondCount < totalDiamonds)
+        {
+            respawnTimer += Time.deltaTime;
+            if (respawnTimer >= respawnDelay)
+            {
+                int needed = totalDiamonds - currentDiamondCount;
+                Debug.Log($"Respawning {needed} diamonds...");
+                SpawnDiamonds(needed);
+                respawnTimer = 0f;
+            }
+        }
+        else
+        {
+            respawnTimer = 0f;
+        }
+    }
 
     [ContextMenu("Spawn Diamonds Now")]
     public void SpawnNow()
+    {
+        ClearAllDiamonds();
+        placedPositions.Clear();
+        SpawnDiamonds(totalDiamonds);
+    }
+    
+    void ClearAllDiamonds()
+    {
+        var toDelete = new List<Transform>();
+        foreach (Transform child in transform) toDelete.Add(child);
+        foreach (var t in toDelete)
+        {
+            if (Application.isPlaying)
+                Destroy(t.gameObject);
+            else
+                DestroyImmediate(t.gameObject);
+        }
+    }
+
+    void SpawnDiamonds(int count)
     {
         if (diamondPrefab == null)
         {
@@ -42,39 +98,27 @@ public class DiamondSpawner : MonoBehaviour
             return;
         }
 
-        // Hapus diamond lama (anak dari spawner)
-        var toDelete = new List<Transform>();
-        foreach (Transform child in transform) toDelete.Add(child);
-        foreach (var t in toDelete) DestroyImmediate(t.gameObject);
-
-        placedPositions.Clear();
-
         int spawned = 0;
         int safety = 0;
 
-        while (spawned < totalDiamonds && safety < totalDiamonds * maxAttemptsPerDiamond)
+        while (spawned < count && safety < count * maxAttemptsPerDiamond)
         {
             safety++;
 
-            // Pilih area ruangan secara acak
             var area = spawnAreas[Random.Range(0, spawnAreas.Count)];
             if (area == null) continue;
 
-            // Titik acak dalam BoxCollider (local -> world)
             Vector3 randomWorld = GetRandomPointInsideBox(area);
 
-            // Raycast dari atas ke bawah untuk cari lantai
             Vector3 start = randomWorld + Vector3.up * raycastHeight;
             if (!Physics.Raycast(start, Vector3.down, out RaycastHit hit, raycastHeight * 2f, groundMask))
-                continue; // tidak mengenai lantai
-
-            Vector3 candidate = hit.point;
-
-            // Cek menabrak obstacle? pakai OverlapSphere sangat tipis
-            if (Physics.CheckSphere(candidate + Vector3.up * 0.1f, 0.2f, obstacleMask))
                 continue;
 
-            // Cek jarak minimal antar diamond
+            Vector3 candidate = hit.point + Vector3.up * heightOffset;
+
+            if (Physics.CheckSphere(candidate, 0.3f, obstacleMask))
+                continue;
+
             bool tooClose = false;
             foreach (var p in placedPositions)
             {
@@ -86,57 +130,49 @@ public class DiamondSpawner : MonoBehaviour
             }
             if (tooClose) continue;
 
-            // Optional: cek NavMesh
             if (useNavMeshCheck)
             {
-                #if UNITY_AI_NAVIGATION
                 if (!NavMesh.SamplePosition(candidate, out NavMeshHit nHit, navMeshMaxDistance, NavMesh.AllAreas))
                     continue;
-                candidate = nHit.position;
-                #else
-                // Jika Unity AI package belum aktif, lewati check
-                #endif
+                candidate = nHit.position + Vector3.up * heightOffset;
             }
 
-            // Spawn
             var rot = alignToGroundNormal ? Quaternion.FromToRotation(Vector3.up, hit.normal) : Quaternion.identity;
             var go = Instantiate(diamondPrefab, candidate, rot, this.transform);
-
+            
+            if (go.GetComponent<Diamond>() == null)
+            {
+                go.AddComponent<Diamond>();
+            }
+            
             placedPositions.Add(candidate);
             spawned++;
         }
 
-        if (spawned < totalDiamonds)
+        if (spawned < count)
         {
-            Debug.LogWarning($"Hanya berhasil spawn {spawned}/{totalDiamonds}. " +
-                             $"Tambah area, kurangi minSpacing, atau perbesar maxAttemptsPerDiamond.");
+            Debug.LogWarning($"Hanya berhasil spawn {spawned}/{count}. Tambah area atau kurangi minSpacing.");
         }
         else
         {
-            Debug.Log($"Sukses spawn {spawned} diamond.");
+            Debug.Log($"✅ Sukses spawn {spawned} diamond di posisi NavMesh walkable dengan height offset {heightOffset}");
         }
     }
 
     private Vector3 GetRandomPointInsideBox(BoxCollider box)
     {
-        // Dapatkan ukuran half-extent pada local space
         Vector3 extents = box.size * 0.5f;
 
-        // Titik acak pada local space, ter-center di box.center
         Vector3 local = new Vector3(
             Random.Range(-extents.x, extents.x),
             Random.Range(-extents.y, extents.y),
             Random.Range(-extents.z, extents.z)
         );
 
-        // Geser ke center collider
         local += box.center;
-
-        // Konversi ke world space
         return box.transform.TransformPoint(local);
     }
 
-    // Gambarkan gizmo area
     private void OnDrawGizmosSelected()
     {
         if (spawnAreas == null) return;

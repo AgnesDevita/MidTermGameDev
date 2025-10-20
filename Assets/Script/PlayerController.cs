@@ -138,12 +138,10 @@ public class PlayerController : MonoBehaviour
     public void OnMove(InputValue value)
     {
         moveInput = value.Get<Vector2>();
-        Debug.Log($"OnMove called! Input: {moveInput}");
     }
 
     public void OnLook(InputValue value)
     {
         lookInput = value.Get<Vector2>();
-        Debug.Log($"OnLook called! Input: {lookInput}");
     }
 }
