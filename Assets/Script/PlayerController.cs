@@ -1,143 +1,88 @@
+// Ganti semua isi PlayerController.cs dengan kode ini
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(Animator))] // Pastikan ada komponen Animator
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
     public float moveSpeed = 5f;
-    public float rotationSpeed = 10f;
-    
-    [Header("Camera Settings")]
-    public Transform cameraTransform;
-    public float mouseSensitivityX = 2f;
-    public float mouseSensitivityY = 2f;
-    public bool invertMouseY = false;
-    
+    public float rotationSpeed = 15f; // Ditingkatkan agar rotasi lebih responsif
+
+    [Header("References")]
+    public Transform cameraTransform; // Referensi ke transform kamera utama
+
     private Rigidbody rb;
+    private Animator animator; // Variabel untuk Animator
     private Vector2 moveInput;
-    private Vector2 lookInput;
-    private float cameraRotationX = 0f;
 
     void Awake()
     {
         rb = GetComponent<Rigidbody>();
+        animator = GetComponent<Animator>();
+
+        // Pastikan Rigidbody tidak berputar sendiri
         rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
-        
-        var navAgent = GetComponent<UnityEngine.AI.NavMeshAgent>();
-        if (navAgent != null)
-        {
-            navAgent.enabled = false;
-            Debug.Log("NavMeshAgent disabled by PlayerController");
-        }
-        
+
+        // Mencari kamera utama secara otomatis jika belum di-set
         if (cameraTransform == null)
         {
-            Camera mainCam = Camera.main;
-            if (mainCam != null)
-            {
-                cameraTransform = mainCam.transform;
-            }
+            cameraTransform = Camera.main.transform;
         }
-        
-        if (cameraTransform != null && cameraTransform.parent == transform)
-        {
-            cameraRotationX = cameraTransform.localEulerAngles.x;
-            Debug.Log("Camera is child of player - using simple parent-child camera");
-        }
-        
+
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
-    }
-
-    void Update()
-    {
-        HandleRotation();
-        HandleCamera();
     }
 
     void FixedUpdate()
     {
         HandleMovement();
     }
-
-    void HandleMovement()
+    
+    void Update()
     {
-        Vector3 forward = cameraTransform.forward;
-        forward.y = 0;
-        forward.Normalize();
-        
-        Vector3 right = cameraTransform.right;
-        right.y = 0;
-        right.Normalize();
-        
-        Vector3 moveDirection = (forward * moveInput.y + right * moveInput.x).normalized;
-        
-        if (moveDirection.magnitude > 0.1f)
+        UpdateAnimator();
+    }
+
+    private void HandleMovement()
+    {
+        // Arah depan kamera (tanpa komponen Y)
+        Vector3 camForward = cameraTransform.forward;
+        camForward.y = 0;
+        camForward.Normalize();
+
+        // Arah kanan kamera (tanpa komponen Y)
+        Vector3 camRight = cameraTransform.right;
+        camRight.y = 0;
+        camRight.Normalize();
+
+        // Hitung arah pergerakan berdasarkan input dan arah kamera
+        Vector3 moveDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
+
+        // Gerakkan Rigidbody
+        rb.linearVelocity = new Vector3(moveDirection.x * moveSpeed, rb.linearVelocity.y, moveDirection.z * moveSpeed);
+
+        // Rotasi karakter agar menghadap ke arah gerakan
+        if (moveDirection != Vector3.zero)
         {
-            Vector3 targetVelocity = moveDirection * moveSpeed;
-            targetVelocity.y = rb.linearVelocity.y;
-            rb.linearVelocity = targetVelocity;
-        }
-        else
-        {
-            Vector3 velocity = rb.linearVelocity;
-            velocity.x = 0;
-            velocity.z = 0;
-            rb.linearVelocity = velocity;
+            Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
     }
 
-    void HandleRotation()
+    private void UpdateAnimator()
     {
-        if (moveInput.magnitude > 0.1f)
-        {
-            Vector3 forward = cameraTransform.forward;
-            forward.y = 0;
-            forward.Normalize();
-            
-            Vector3 right = cameraTransform.right;
-            right.y = 0;
-            right.Normalize();
-            
-            Vector3 moveDirection = (forward * moveInput.y + right * moveInput.x).normalized;
-            
-            if (moveDirection != Vector3.zero)
-            {
-                Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
-            }
-        }
+        // Mengirim informasi kecepatan ke Animator
+        // Magnitude dari input (0 jika diam, 1 jika bergerak)
+        float speed = moveInput.magnitude;
+        animator.SetFloat("Speed", speed);
     }
 
-    void HandleCamera()
-    {
-        if (cameraTransform == null) return;
-        
-        if (cameraTransform.parent == transform)
-        {
-            float mouseY = lookInput.y * mouseSensitivityY;
-            if (invertMouseY) mouseY = -mouseY;
-            
-            cameraRotationX -= mouseY;
-            cameraRotationX = Mathf.Clamp(cameraRotationX, -30f, 60f);
-            
-            cameraTransform.localRotation = Quaternion.Euler(cameraRotationX, 0, 0);
-            
-            float mouseX = lookInput.x * mouseSensitivityX;
-            transform.Rotate(Vector3.up * mouseX);
-        }
-    }
 
+    // Fungsi ini dipanggil oleh Player Input Component
     public void OnMove(InputValue value)
     {
         moveInput = value.Get<Vector2>();
-        Debug.Log($"OnMove called! Input: {moveInput}");
-    }
-
-    public void OnLook(InputValue value)
-    {
-        lookInput = value.Get<Vector2>();
-        Debug.Log($"OnLook called! Input: {lookInput}");
     }
 }
