@@ -41,26 +41,36 @@ public class CameraFollow : MonoBehaviour
         // 1. Menentukan posisi ideal kamera di belakang target
         desiredPosition = target.position + (target.rotation * offset);
 
-        // 2. Mengatur posisi kamera dengan mulus (smooth)
-        transform.position = Vector3.Lerp(transform.position, desiredPosition, smoothSpeed * Time.deltaTime);
+        // 2. Menghandle tabrakan dengan tembok menggunakan Raycast
+        // Hitung collision SEBELUM lerping untuk hasil yang lebih smooth
+        Vector3 finalPosition = HandleCollision();
 
-        // 3. Menghandle tabrakan dengan tembok menggunakan Raycast
-        HandleCollision();
+        // 3. Mengatur posisi kamera dengan mulus (smooth)
+        transform.position = Vector3.Lerp(transform.position, finalPosition, smoothSpeed * Time.deltaTime);
 
         // 4. Selalu membuat kamera melihat ke arah target
         // Kita LookAt sedikit ke atas kepala target (1.0f), BUKAN di kaki (0)
         transform.LookAt(target.position + Vector3.up * 1.0f); 
     }
 
-    private void HandleCollision()
+    private Vector3 HandleCollision()
     {
         RaycastHit hit;
         // Titik awal raycast juga sedikit di atas pivot (kaki)
-        Vector3 targetPosition = target.position + Vector3.up * 1.0f; 
+        Vector3 targetPosition = target.position + Vector3.up * 1.0f;
         
-        if (Physics.Raycast(targetPosition, desiredPosition - targetPosition, out hit, distance, collisionMask))
+        // Hitung direction dari target ke desired camera position
+        Vector3 direction = (desiredPosition - targetPosition).normalized;
+        float distanceToCamera = Vector3.Distance(targetPosition, desiredPosition);
+        
+        // Raycast dari target ke posisi kamera yang diinginkan
+        if (Physics.Raycast(targetPosition, direction, out hit, distanceToCamera, collisionMask))
         {
-            transform.position = hit.point + hit.normal * collisionPadding;
+            // Jika ada collision, posisikan kamera di titik collision dengan padding
+            return hit.point + hit.normal * collisionPadding;
         }
+        
+        // Jika tidak ada collision, return desired position
+        return desiredPosition;
     }
 }
