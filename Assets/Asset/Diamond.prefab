@@ -101,6 +101,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b20ebacb423f5a54fb369fcce402f751, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Diamond
+  autoScaleMultiplier: 3
+  enableRotation: 0
   rotationSpeed: 50
   enableFloating: 1
   floatAmplitude: 0.5

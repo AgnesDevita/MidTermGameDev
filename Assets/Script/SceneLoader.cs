@@ -3,14 +3,22 @@ using UnityEngine.SceneManagement;
 
 public class SceneLoader : MonoBehaviour
 {
-    [Header("Nama scene harus sama persis dg di Project")]
-    [SerializeField] string gameSceneName = "Game";
-    [SerializeField] string settingsSceneName = "Settings";   // kalau Settings pakai scene terpisah
-    [SerializeField] string creditsSceneName = "Credits";     // opsional
+    [Header("Scene Names - Must Match Build Settings")]
+    [SerializeField] string level1SceneName = "Level1";
+    [SerializeField] string mainMenuSceneName = "MainMenu";
+    [SerializeField] string settingsSceneName = "Settings";
+    [SerializeField] string creditsSceneName = "Credits";
 
-    public void LoadGame()
+    public void LoadLevel1()
     {
-        SceneManager.LoadScene(gameSceneName, LoadSceneMode.Single);
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(level1SceneName, LoadSceneMode.Single);
+    }
+
+    public void LoadMainMenu()
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(mainMenuSceneName, LoadSceneMode.Single);
     }
 
     public void LoadSettings()
@@ -30,5 +38,11 @@ public class SceneLoader : MonoBehaviour
         #else
         Application.Quit();
         #endif
+    }
+
+    public void RestartCurrentLevel()
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 }

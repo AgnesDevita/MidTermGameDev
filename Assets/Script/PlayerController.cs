@@ -6,8 +6,7 @@ public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
     public float moveSpeed = 5f;
-    public float runSpeed = 9f;       
-    public float rotationSpeed = 10f;
+    public float runSpeed = 9f;
 
     [Header("Camera Settings")]
     public Transform cameraTransform;
@@ -17,20 +16,25 @@ public class PlayerController : MonoBehaviour
 
     private Rigidbody rb;
     private Vector2 moveInput;
-    private Vector2 lookInput;
+    private float rotationY = 0f;
     private float cameraRotationX = 0f;
-    private bool isRunning;           
+    private bool isRunning;
 
     void Awake()
     {
         rb = GetComponent<Rigidbody>();
+        
         rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        rb.linearDamping = 2f;
+        rb.angularDamping = 0f;
+        rb.mass = 1f;
 
         var navAgent = GetComponent<UnityEngine.AI.NavMeshAgent>();
         if (navAgent != null)
         {
             navAgent.enabled = false;
-            Debug.Log("NavMeshAgent disabled by PlayerController");
         }
 
         if (cameraTransform == null)
@@ -42,10 +46,12 @@ public class PlayerController : MonoBehaviour
             }
         }
 
+        rotationY = transform.eulerAngles.y;
+
         if (cameraTransform != null && cameraTransform.parent == transform)
         {
             cameraRotationX = cameraTransform.localEulerAngles.x;
-            Debug.Log("Camera is child of player - using simple parent-child camera");
+            if (cameraRotationX > 180f) cameraRotationX -= 360f;
         }
 
         Cursor.lockState = CursorLockMode.Locked;
@@ -55,9 +61,7 @@ public class PlayerController : MonoBehaviour
     void Update()
     {
         HandleRotation();
-        HandleCamera();
-
-        isRunning = Keyboard.current.leftShiftKey.isPressed;
+        isRunning = Keyboard.current != null && Keyboard.current.leftShiftKey.isPressed;
     }
 
     void FixedUpdate()
@@ -67,23 +71,30 @@ public class PlayerController : MonoBehaviour
 
     void HandleMovement()
     {
-        Vector3 forward = cameraTransform.forward;
+        if (moveInput.magnitude > 0.01f)
+        {
+            Debug.Log($"<color=cyan>INPUT DETECTED: {moveInput}</color>");
+        }
+
+        Vector3 forward = transform.forward;
         forward.y = 0;
         forward.Normalize();
 
-        Vector3 right = cameraTransform.right;
+        Vector3 right = transform.right;
         right.y = 0;
         right.Normalize();
 
         Vector3 moveDirection = (forward * moveInput.y + right * moveInput.x).normalized;
 
-        float currentSpeed = isRunning ? runSpeed : moveSpeed;  
+        float currentSpeed = isRunning ? runSpeed : moveSpeed;
 
         if (moveDirection.magnitude > 0.1f)
         {
             Vector3 targetVelocity = moveDirection * currentSpeed;
             targetVelocity.y = rb.linearVelocity.y;
             rb.linearVelocity = targetVelocity;
+            
+            Debug.Log($"<color=green>MOVING! Velocity={targetVelocity}</color>");
         }
         else
         {
@@ -96,52 +107,47 @@ public class PlayerController : MonoBehaviour
 
     void HandleRotation()
     {
-        if (moveInput.magnitude > 0.1f)
-        {
-            Vector3 forward = cameraTransform.forward;
-            forward.y = 0;
-            forward.Normalize();
+        if (Mouse.current == null || cameraTransform == null) return;
 
-            Vector3 right = cameraTransform.right;
-            right.y = 0;
-            right.Normalize();
+        Vector2 mouseDelta = Mouse.current.delta.ReadValue();
 
-            Vector3 moveDirection = (forward * moveInput.y + right * moveInput.x).normalized;
+        float mouseX = mouseDelta.x * mouseSensitivityX;
+        float mouseY = mouseDelta.y * mouseSensitivityY;
 
-            if (moveDirection != Vector3.zero)
-            {
-                Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
-            }
-        }
-    }
+        if (invertMouseY) mouseY = -mouseY;
 
-    void HandleCamera()
-    {
-        if (cameraTransform == null) return;
+        rotationY += mouseX;
+        transform.rotation = Quaternion.Euler(0f, rotationY, 0f);
+
+        cameraRotationX -= mouseY;
+        cameraRotationX = Mathf.Clamp(cameraRotationX, -80f, 80f);
 
         if (cameraTransform.parent == transform)
         {
-            float mouseY = lookInput.y * mouseSensitivityY;
-            if (invertMouseY) mouseY = -mouseY;
-
-            cameraRotationX -= mouseY;
-            cameraRotationX = Mathf.Clamp(cameraRotationX, -30f, 60f);
-
-            cameraTransform.localRotation = Quaternion.Euler(cameraRotationX, 0, 0);
-
-            float mouseX = lookInput.x * mouseSensitivityX;
-            transform.Rotate(Vector3.up * mouseX);
+            cameraTransform.localRotation = Quaternion.Euler(cameraRotationX, 0f, 0f);
         }
     }
 
     public void OnMove(InputValue value)
     {
         moveInput = value.Get<Vector2>();
+        Debug.LogWarning($"OnMove CALLED! Input: {moveInput}");
     }
 
     public void OnLook(InputValue value)
     {
-        lookInput = value.Get<Vector2>();
+    }
+
+    void OnEnable()
+    {
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    void OnDisable()
+    {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 }
+
